@@ -149,7 +149,7 @@ local function createGui()
     -- 2. Ana Panel (Main Frame)
     local MainFrame = Instance.new("Frame")
     MainFrame.Size = UDim2.new(0, 320, 0, 450) -- Daha kompakt boyut
-    MainFrame.Position = UDim2.new(0.5, -160, 0.5, -225)
+    MainFrame.Position = UDim2.new(0.5, -240, 0.5, 19)
     MainFrame.BackgroundColor3 = COLORS.MainBg
     MainFrame.ClipsDescendants = true
     MainFrame.Active = true
