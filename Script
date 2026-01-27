@@ -12,11 +12,15 @@ local targetPlayer: Player? = nil
 local followEnabled = false
 local espEnabled = false
 local autoTPEnabled = false
+local lowHpTPEnabled = false
 local boostEnabled = false
 local guiAlive = true
 
 local defaultWalkSpeed = 16
 local defaultJumpPower = 50
+local baseDistance = 4
+local currentDistance = 4
+local isPressingKey = false
 
 -- Karakter verilerini kaydet
 task.spawn(function()
@@ -52,6 +56,13 @@ local function isAlive(player: Player): boolean
     return hum ~= nil and hum.Health > 0
 end
 
+local function getPlayerHealth(player: Player): number
+    local char = player.Character
+    if not char then return 0 end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    return hum and hum.Health or 0
+end
+
 local function getClosestAlivePlayer(originPos: Vector3): Player?
     local closestPlr: Player? = nil
     local closestDist = math.huge
@@ -71,8 +82,24 @@ local function getClosestAlivePlayer(originPos: Vector3): Player?
     return closestPlr
 end
 
+local function getLowestHealthPlayer(): Player?
+    local lowestPlr: Player? = nil
+    local lowestHp = math.huge
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and isAlive(plr) then
+            local hp = getPlayerHealth(plr)
+            if hp > 0 and hp < lowestHp then
+                lowestHp = hp
+                lowestPlr = plr
+            end
+        end
+    end
+    return lowestPlr
+end
+
 -- Drawing Library (Executor Specific) Check
-local Drawing = Drawing or {new = function() return {Remove = function() end, Visible = false} end} -- Fallback for Studio
+local Drawing = Drawing or {new = function() return {Remove = function() end, Visible = false} end}
 
 local function clearESPForPlayer(plr: Player)
     if espBoxes[plr] then
@@ -87,6 +114,39 @@ local function clearAllESP()
         espBoxes[plr] = nil
     end
 end
+
+-- Tuş basma kontrolü
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    local key = input.KeyCode
+    local userInputType = input.UserInputType
+    
+    if userInputType == Enum.UserInputType.MouseButton1 or
+       key == Enum.KeyCode.Q or
+       key == Enum.KeyCode.One or
+       key == Enum.KeyCode.Two or
+       key == Enum.KeyCode.Three or
+       key == Enum.KeyCode.Four then
+        isPressingKey = true
+        currentDistance = 1
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    local key = input.KeyCode
+    local userInputType = input.UserInputType
+    
+    if userInputType == Enum.UserInputType.MouseButton1 or
+       key == Enum.KeyCode.Q or
+       key == Enum.KeyCode.One or
+       key == Enum.KeyCode.Two or
+       key == Enum.KeyCode.Three or
+       key == Enum.KeyCode.Four then
+        isPressingKey = false
+        currentDistance = baseDistance
+    end
+end)
 
 -- --- GUI CREATION ---
 local function createGui()
@@ -105,12 +165,12 @@ local function createGui()
         MainBg = Color3.fromRGB(25, 25, 30),
         Header = Color3.fromRGB(35, 35, 40),
         Element = Color3.fromRGB(45, 45, 50),
-        Accent = Color3.fromRGB(0, 255, 128), -- Neon Yeşil
+        Accent = Color3.fromRGB(0, 255, 128),
         Text = Color3.fromRGB(255, 255, 255),
         Red = Color3.fromRGB(255, 60, 60)
     }
 
-    -- 1. Mini Button (Küçültüldüğünde açılan buton)
+    -- 1. Mini Button
     local MiniFrame = Instance.new("Frame")
     MiniFrame.Size = UDim2.new(0, 50, 0, 50)
     MiniFrame.Position = UDim2.new(0.05, 0, 0.1, 0)
@@ -134,7 +194,6 @@ local function createGui()
     MiniBtn.TextColor3 = COLORS.Accent
     MiniBtn.Parent = MiniFrame
 
-    -- Dönme Animasyonu
     task.spawn(function()
         local rot = 0
         while guiAlive do
@@ -146,9 +205,9 @@ local function createGui()
         end
     end)
 
-    -- 2. Ana Panel (Main Frame)
+    -- 2. Ana Panel
     local MainFrame = Instance.new("Frame")
-    MainFrame.Size = UDim2.new(0, 320, 0, 450) -- Daha kompakt boyut
+    MainFrame.Size = UDim2.new(0, 320, 0, 500)
     MainFrame.Position = UDim2.new(0.5, -240, 0.5, 19)
     MainFrame.BackgroundColor3 = COLORS.MainBg
     MainFrame.ClipsDescendants = true
@@ -156,7 +215,7 @@ local function createGui()
     MainFrame.Draggable = true
     MainFrame.Parent = ScreenGui
     MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    MainFrame.Size = UDim2.new(0, 0, 0, 0) -- Başlangıçta 0, animasyonla açılacak
+    MainFrame.Size = UDim2.new(0, 0, 0, 0)
 
     Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
     local MainStroke = Instance.new("UIStroke")
@@ -164,14 +223,13 @@ local function createGui()
     MainStroke.Thickness = 2
     MainStroke.Parent = MainFrame
 
-    -- Header (Başlık)
+    -- Header
     local Header = Instance.new("Frame")
     Header.Size = UDim2.new(1, 0, 0, 40)
     Header.BackgroundColor3 = COLORS.Header
     Header.Parent = MainFrame
     Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 8)
     
-    -- Köşeleri düzeltmek için alt kısmı kapatan frame
     local HeaderFix = Instance.new("Frame")
     HeaderFix.Size = UDim2.new(1, 0, 0, 10)
     HeaderFix.Position = UDim2.new(0, 0, 1, -10)
@@ -190,7 +248,6 @@ local function createGui()
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.Parent = Header
 
-    -- Kontrol Butonları (Kapat / Küçült)
     local function createCtrlBtn(text, color, posOffset, callback)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(0, 25, 0, 25)
@@ -205,7 +262,6 @@ local function createGui()
         return btn
     end
 
-    -- Küçültme Fonksiyonu
     createCtrlBtn("-", Color3.fromRGB(80, 80, 80), -65, function()
         local tween = TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Size = UDim2.new(0,0,0,0), BackgroundTransparency = 1})
         tween:Play()
@@ -217,19 +273,16 @@ local function createGui()
         TweenService:Create(MiniFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 50, 0, 50)}):Play()
     end)
 
-    -- Kapatma Fonksiyonu
     createCtrlBtn("X", COLORS.Red, -35, function()
         guiAlive = false
         clearAllESP()
         ScreenGui:Destroy()
-        -- Reset speed
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
             LocalPlayer.Character.Humanoid.WalkSpeed = defaultWalkSpeed
             LocalPlayer.Character.Humanoid.JumpPower = defaultJumpPower
         end
     end)
 
-    -- Mini Buton Geri Dönüş
     MiniBtn.MouseButton1Click:Connect(function()
         local t = TweenService:Create(MiniFrame, TweenInfo.new(0.3), {Size = UDim2.new(0,0,0,0)})
         t:Play()
@@ -238,10 +291,9 @@ local function createGui()
         MainFrame.Visible = true
         MainFrame.BackgroundTransparency = 0
         if MainStroke then MainStroke.Transparency = 0 end
-        TweenService:Create(MainFrame, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 320, 0, 450)}):Play()
+        TweenService:Create(MainFrame, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 320, 0, 500)}):Play()
     end)
-
-    -- --- SCROLLING CONTENT ---
+	-- --- SCROLLING CONTENT ---
     local ScrollingFrame = Instance.new("ScrollingFrame")
     ScrollingFrame.Size = UDim2.new(1, -10, 1, -50)
     ScrollingFrame.Position = UDim2.new(0, 5, 0, 45)
@@ -265,7 +317,6 @@ local function createGui()
     UIPadding.PaddingBottom = UDim.new(0, 5)
     UIPadding.Parent = ScrollingFrame
 
-    -- Yardımcı UI Oluşturucular
     local function createSectionTitle(text)
         local lbl = Instance.new("TextLabel")
         lbl.Size = UDim2.new(1, 0, 0, 25)
@@ -419,7 +470,6 @@ local function createGui()
 
         btn.MouseButton1Click:Connect(callback)
 
-        -- Hover Animasyon
         btn.MouseEnter:Connect(function()
             TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.new(color.R*1.2, color.G*1.2, color.B*1.2)}):Play()
         end)
@@ -435,16 +485,29 @@ local function createGui()
     
     local followToggle = createToggle("Follow Target", "👤", function(s) 
         followEnabled = s 
-        if s then autoTPEnabled = false end -- autoTP kapat
+        if s then 
+            autoTPEnabled = false
+            lowHpTPEnabled = false
+        end
     end)
     
     local tpToggle = createToggle("Auto TP (Nearest)", "🎯", function(s) 
         autoTPEnabled = s 
         if s then 
-            followEnabled = false 
+            followEnabled = false
+            lowHpTPEnabled = false
             followToggle.Set(false)
         else
             lastAutoTarget = nil
+        end
+    end)
+
+    local lowHpToggle = createToggle("Low HP TP", "❤️", function(s)
+        lowHpTPEnabled = s
+        if s then
+            followEnabled = false
+            autoTPEnabled = false
+            followToggle.Set(false)
         end
     end)
 
@@ -468,7 +531,6 @@ local function createGui()
             boostBtn.Text = "ACTIVATE BOOSTS (V)"
             TweenService:Create(boostBtn, TweenInfo.new(0.3), {BackgroundColor3 = COLORS.Element, TextColor3 = COLORS.Text}):Play()
             
-            -- Reset
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
                 LocalPlayer.Character.Humanoid.WalkSpeed = defaultWalkSpeed
                 LocalPlayer.Character.Humanoid.JumpPower = defaultJumpPower
@@ -476,19 +538,16 @@ local function createGui()
         end
     end
     
-    -- Boost butonuna asıl işlevi bağla
     boostBtn.MouseButton1Click:Connect(toggleBoosts)
     
-    -- V tuşu ile basma
     UserInputService.InputBegan:Connect(function(i, g)
         if not g and i.KeyCode == Enum.KeyCode.V then toggleBoosts() end
     end)
 
     createSectionTitle("PLAYER LIST (Select Target)")
 
-    -- Oyuncu Listesi (Scrolling Frame içinde olacak)
     local playerContainer = Instance.new("Frame")
-    playerContainer.Size = UDim2.new(1, 0, 0, 0) -- Otomatik boyutlanacak
+    playerContainer.Size = UDim2.new(1, 0, 0, 0)
     playerContainer.BackgroundTransparency = 1
     playerContainer.AutomaticSize = Enum.AutomaticSize.Y
     playerContainer.Parent = ScrollingFrame
@@ -505,13 +564,34 @@ local function createGui()
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
                 local btn = Instance.new("TextButton")
-                btn.Size = UDim2.new(1, 0, 0, 30)
+                btn.Size = UDim2.new(1, 0, 0, 35)
                 btn.BackgroundColor3 = (targetPlayer == plr) and COLORS.Accent or Color3.fromRGB(35, 35, 40)
-                btn.Text = plr.Name .. (isAlive(plr) and " [HP]" or " [DEAD]")
+                btn.Text = ""
                 btn.TextColor3 = (targetPlayer == plr) and Color3.new(0,0,0) or COLORS.Text
                 btn.Font = Enum.Font.GothamMedium
                 btn.Parent = playerContainer
                 Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+
+                -- Profil resmi
+                local avatar = Instance.new("ImageLabel")
+                avatar.Size = UDim2.new(0, 28, 0, 28)
+                avatar.Position = UDim2.new(0, 4, 0.5, -14)
+                avatar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+                avatar.Image = Players:GetUserThumbnailAsync(plr.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
+                avatar.Parent = btn
+                Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
+
+                -- İsim ve HP
+                local nameLabel = Instance.new("TextLabel")
+                nameLabel.Size = UDim2.new(1, -40, 1, 0)
+                nameLabel.Position = UDim2.new(0, 38, 0, 0)
+                nameLabel.BackgroundTransparency = 1
+                nameLabel.Text = plr.Name .. (isAlive(plr) and " [HP: " .. math.floor(getPlayerHealth(plr)) .. "]" or " [DEAD]")
+                nameLabel.TextColor3 = (targetPlayer == plr) and Color3.new(0,0,0) or COLORS.Text
+                nameLabel.Font = Enum.Font.GothamMedium
+                nameLabel.TextSize = 13
+                nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+                nameLabel.Parent = btn
 
                 btn.MouseButton1Click:Connect(function()
                     targetPlayer = plr
@@ -528,9 +608,8 @@ local function createGui()
         refreshPlayers()
     end)
 
-    -- Açılış Animasyonu
     MainFrame.Visible = true
-    TweenService:Create(MainFrame, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 320, 0, 450)}):Play()
+    TweenService:Create(MainFrame, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 320, 0, 500)}):Play()
 
     -- --- LOOP LOGIC ---
     RunService.RenderStepped:Connect(function()
@@ -545,6 +624,16 @@ local function createGui()
             end
         end
 
+        if lowHpTPEnabled and char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local lowHpPlayer = getLowestHealthPlayer()
+                if lowHpPlayer then
+                    targetPlayer = lowHpPlayer
+                end
+            end
+        end
+
         if autoTPEnabled and char then
             local hrp = char:FindFirstChild("HumanoidRootPart")
             if hrp then
@@ -555,14 +644,15 @@ local function createGui()
             end
         end
 
-        if (followEnabled or autoTPEnabled) and targetPlayer and isAlive(targetPlayer) and char then
+        if (followEnabled or autoTPEnabled or lowHpTPEnabled) and targetPlayer and isAlive(targetPlayer) and char then
             local myHRP = char:FindFirstChild("HumanoidRootPart")
             local tChar = targetPlayer.Character
             local targetHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
 
             if myHRP and targetHRP then
-                local offset = targetHRP.CFrame.LookVector * -4
-                local targetPos = targetHRP.Position + offset
+                local offset = targetHRP.CFrame.LookVector * -currentDistance
+                local downOffset = Vector3.new(0, -1.5, 0)
+                local targetPos = targetHRP.Position + offset + downOffset
                 myHRP.CFrame = CFrame.new(targetPos, targetHRP.Position)
             end
         end
@@ -589,10 +679,10 @@ local function createGui()
                             if onScreen then
                                 box.Visible = true
                                 if plr == targetPlayer then
-                                    box.Color = Color3.fromRGB(255, 255, 0) -- Target Sarı
+                                    box.Color = Color3.fromRGB(255, 255, 0)
                                     box.Thickness = 2.5
                                 else
-                                    box.Color = Color3.fromRGB(255, 0, 0) -- Diğerleri Kırmızı
+                                    box.Color = Color3.fromRGB(255, 0, 0)
                                     box.Thickness = 1.5
                                 end
                                 
@@ -610,7 +700,6 @@ local function createGui()
                         clearESPForPlayer(plr)
                     end
                 end
-                -- Temizlik
                 for plr, _ in pairs(espBoxes) do
                     if not Players:FindFirstChild(plr.Name) then
                         clearESPForPlayer(plr)
